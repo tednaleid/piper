@@ -1,7 +1,10 @@
 # todo
+- exit when EOF/end of input
+- split out requests from awaiting responses
 
-get a stream of requests on stdin coming in
-make requests for each and await right away
+- make lots of workers?
+- throttling?
+
 
 
 ganda comparison:
