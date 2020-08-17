@@ -1,0 +1,19 @@
+[package]
+name = "piper"
+version = "0.1.0"
+authors = ["Ted Naleid <contact@naleid.com>"]
+edition = "2018"
+description = "A fast command-line utility to make lots of dynamic http requests based on stdin input"
+readme = "README.md"
+keywords = ["curl", "http", "request"]
+categories = ["command-line-utilities"]
+repository = "https://github.com/tednaleid/piper"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+clap = "2.33.3"
+crossbeam = "0.7.3"
+crossterm = "0.17.7"
+
+tokio = { version = "0.2", features = ["full"] }
+reqwest = "0.10.7"
