@@ -1,6 +1,6 @@
 # todo
 - exit when EOF/end of input
-- split out requests from awaiting responses
+- split out requests from awaiting responses?
 
 - make lots of workers?
   - work stealing thread pool 
@@ -8,6 +8,9 @@
   - tokio task?
     - https://tokio-rs.github.io/tokio/doc/tokio/task/index.html
 - throttling?
+
+
+- tests with tokio runtime?
 
 
 
