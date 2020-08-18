@@ -2,46 +2,40 @@
 use reqwest::Client;
 use std::io::{self, BufRead, BufReader, Stdin};
 use tokio::sync::mpsc::{self, Sender};
-use tokio::task;
+use tokio::{runtime, task};
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+fn main() -> Result<()> {
     // let args = Args::parse();
-
     // let Args { input } = args;
 
-    let (message_sender, message_receiver) = mpsc::channel::<RequestContext>(128);
+    let mut rt = runtime::Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build()?;
 
-    let worker_handle = spawn_worker(message_receiver);
+    rt.block_on(async {
+        let (message_sender, message_receiver) = mpsc::channel::<RequestContext>(128);
 
-    // spawn_request_context_worker(input, &mut message_sender).await;
+        // doesn't work fails because dyn BufRead doesn't support Send
+        //
+        // let reader: Box<dyn BufRead> = if !input.is_empty() {
+        //     Box::new(BufReader::new(File::open(input).unwrap()))
+        // } else {
+        //     Box::new(BufReader::new(io::stdin()))
+        // };
 
-    // task::spawn(spawn_request_context_worker(input, &mut message_sender)).await;
+        // TODO try the tokio io aware version of BufRead to see if that works for making the input generic
 
-    // tokio::spawn(async move {
-    //     let url = "http://localhost:1323/100".to_string();
-    //     let v = RequestContext { url };
-    //     message_sender.send(v).await;
-    // }).await;
+        let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));
 
-    // doesn't work fails because dyn BufRead doesn't support Send
-    //
-    // let reader: Box<dyn BufRead> = if !input.is_empty() {
-    //     Box::new(BufReader::new(File::open(input).unwrap()))
-    // } else {
-    //     Box::new(BufReader::new(io::stdin()))
-    // };
+        let worker = spawn_request_context_worker(message_sender, reader);
+        let worker_handle = spawn_worker(message_receiver);
 
-    // TODO try the tokio io aware version of BufRead to see if that works for making the input generic
-
-    let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));
-    spawn_request_context_worker(message_sender, reader).await;
-
-    // // TODO how do we get the message sender channel to close without this hack?
-    // // Could we maybe use the tokio io versions of things?
-    // task::spawn( async move { message_sender; }).await;
-
-    let _ = worker_handle.await;
+        let _ = worker.await;
+        let _ = worker_handle.await;
+    });
 
     Ok(())
 }
