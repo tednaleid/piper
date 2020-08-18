@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let Args { input, output } = args;
+    let Args { input } = args;
 
     let mut runtime = Builder::new()
         .threaded_scheduler()
@@ -19,13 +19,13 @@ fn main() -> Result<()> {
         .build()?;
 
     runtime.block_on(async {
-        let mut reader: Box<dyn BufRead> = if !input.is_empty() {
+        let reader: Box<dyn BufRead> = if !input.is_empty() {
             Box::new(BufReader::new(File::open(input).unwrap()))
         } else {
             Box::new(BufReader::new(io::stdin()))
         };
 
-        let (mut message_sender, mut message_receiver) = mpsc::channel::<RequestContext>(128);
+        let (mut message_sender, message_receiver) = mpsc::channel::<RequestContext>(128);
 
         let worker_handle = spawn_worker(message_receiver);
 
@@ -40,7 +40,7 @@ fn main() -> Result<()> {
             }
         }
 
-        worker_handle.await;
+        let _ = worker_handle.await;
     });
 
     Ok(())
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
 
 fn spawn_worker(mut receiver: mpsc::Receiver<RequestContext>) -> JoinHandle<()> {
     let client = Client::new();
-    return tokio::spawn(async move {
+    tokio::spawn(async move {
         println!("inside spawn!");
         loop {
             let request_context = receiver.recv().await.unwrap();
@@ -57,7 +57,7 @@ fn spawn_worker(mut receiver: mpsc::Receiver<RequestContext>) -> JoinHandle<()> 
 
             println!("result {} - {}", response.url(), response.status())
         }
-    });
+    })
 }
 
 #[derive(Debug)]

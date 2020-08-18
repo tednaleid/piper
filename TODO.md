@@ -3,6 +3,10 @@
 - split out requests from awaiting responses
 
 - make lots of workers?
+  - work stealing thread pool 
+      - https://docs.rs/tokio-threadpool/0.1.17/tokio_threadpool/struct.ThreadPool.html  ?
+  - tokio task?
+    - https://tokio-rs.github.io/tokio/doc/tokio/task/index.html
 - throttling?
 
 
