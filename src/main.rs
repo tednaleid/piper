@@ -7,6 +7,8 @@ use tokio::{runtime, task};
 use piper::args::Args;
 use std::fs::File;
 use tokio::time::Duration;
+use std::alloc::handle_alloc_error;
+use std::error::Error;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -15,6 +17,8 @@ async fn app() -> Result<()> {
 
     let request_client = request_client()?;
 
+    let (mut request_context_tx, mut request_context_rx) = mpsc::channel(16);
+
     // plays into the max number of concurrent requests (one being sent, N in the channel, and M in the buffer_unordered on the other end)
     // the unordered buffer in the response awaiter also plays into it
     let (mut request_tx, request_rx) = mpsc::channel(16);
@@ -22,7 +26,24 @@ async fn app() -> Result<()> {
     let response_awaiter = tokio::spawn(async move {
         let mut bu = request_rx.buffer_unordered(20);
 
-        while let Some(_handle) = bu.next().await {}
+        while let Some(handle) = bu.next().await {
+            let result = match handle {
+                Ok(_) => { },
+                Err(e) => {
+                    eprintln!("error! {}", e);
+                },
+            };
+        }
+    });
+
+    let request_maker = tokio::spawn(async move {
+        while let Some(request_context) = request_context_rx.recv().await {
+            let resp = task::spawn(request(request_context, request_client.clone()));
+            if request_tx.send(resp).await.is_err() {
+                println!("can't transmit");
+                break;
+            }
+        };
     });
 
     // let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));
@@ -33,16 +54,16 @@ async fn app() -> Result<()> {
             url: url_result.unwrap(),
         };
 
-        let resp = task::spawn(request(request_context, request_client.clone()));
-
-        if request_tx.send(resp).await.is_err() {
-            println!("can't transmit");
-            break;
+        if request_context_tx.send(request_context).await.is_err() {
+            eprintln!("can't transmit");
+            break
         }
     }
 
-    drop(request_tx);
+    // need to explicitly drop it so it closes and we can finish
+    drop(request_context_tx);
 
+    let _ = request_maker.await;
     let _ = response_awaiter.await;
 
     Ok(())
@@ -62,30 +83,6 @@ fn request_client() -> Result<Client> {
     let client = Client::builder().timeout(timeout).gzip(true).build()?;
     Ok(client)
 }
-
-// pub fn write_loop(outfile: &str, write_rx: Receiver<Vec<u8>>) -> Result<()> {
-//     let mut writer: Box<dyn Write> = if !outfile.is_empty() {
-//         Box::new(BufWriter::new(File::create(outfile)?))
-//     } else {
-//         Box::new(BufWriter::new(io::stdout()))
-//     };
-//
-//     loop {
-//         let buffer = write_rx.recv().unwrap();
-//
-//         if buffer.is_empty() {
-//             break;
-//         }
-//
-//         if let Err(e) = writer.write_all(&buffer) {
-//             if e.kind() == ErrorKind::BrokenPipe {
-//                 return Ok(());
-//             }
-//             return Err(e);
-//         }
-//     }
-//     Ok(())
-// }
 
 fn main() -> Result<()> {
     let future = app();

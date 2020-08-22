@@ -10,6 +10,9 @@
 - fix panics if broken pipe
 - send responses (with body?) down a channel
 
+input line -> request_context -> make request -> ack_request 
+                                          \_> finish request
+
 
 ganda comparison:
 
