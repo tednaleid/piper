@@ -3,12 +3,10 @@ use reqwest::{Client, Url};
 use std::io::{self, BufRead, BufReader};
 use tokio::sync::mpsc::{self, Receiver};
 use tokio::{runtime, task};
-// use tokio::time::{delay_for, Duration};
 use piper::args::Args;
 use std::fs::File;
-use tokio::time::Duration;
+use tokio::time::{Duration, delay_for};
 use std::alloc::handle_alloc_error;
-use std::error::Error;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -24,23 +22,28 @@ async fn app() -> Result<()> {
     let (mut request_tx, request_rx) = mpsc::channel(16);
 
     let response_awaiter = tokio::spawn(async move {
-        let mut bu = request_rx.buffer_unordered(20);
+        let mut bu = request_rx.buffer_unordered(32);
+
+        // how should retries be handled? one option, if it isn't built into reqwest, would be to send the request_context back down the pipe with a counter
+        // looks like reqwest has a try_clone on the request object for retry reasons (the try is because if the body is a stream, it can't clone that)
 
         while let Some(handle) = bu.next().await {
-            let result = match handle {
-                Ok(_) => { },
+            let _result = match handle {
                 Err(e) => {
                     eprintln!("error! {}", e);
-                },
+                }
+                _ => {}
             };
         }
     });
 
     let request_maker = tokio::spawn(async move {
         while let Some(request_context) = request_context_rx.recv().await {
-            let resp = task::spawn(request(request_context, request_client.clone()));
+            // TODO decide about this, spawning a task gives about 2x the throughput, but adds a level of indirection on the awaiting
+            // let resp = task::spawn(request(request_context, request_client.clone()));
+            let resp = request(request_context, request_client.clone());
             if request_tx.send(resp).await.is_err() {
-                println!("can't transmit");
+                eprintln!("can't transmit");
                 break;
             }
         };
@@ -49,14 +52,18 @@ async fn app() -> Result<()> {
     // let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));
     let reader = create_reader(input)?;
 
+    let mut line_count = 1;
     for url_result in reader.lines() {
         let request_context = RequestContext {
             url: url_result.unwrap(),
+            id: line_count,
         };
+
+        line_count += 1;
 
         if request_context_tx.send(request_context).await.is_err() {
             eprintln!("can't transmit");
-            break
+            break;
         }
     }
 
@@ -100,18 +107,19 @@ async fn request(request_context: RequestContext, client: Client) -> Result<()> 
     let response = client.get(url.clone()).send().await?;
 
     // dummy latency on some subset of requests
-    // if id % 2 == 0 {
-    //     delay_for(Duration::from_millis(100)).await;
+    // if request_context.id % 2 == 0 {
+    //     delay_for(Duration::from_millis(10)).await;
     // }
 
     let elapsed = start.elapsed().as_millis();
 
     // TODO switch output to a byte stream? something more configurable than just text?
     println!(
-        "{} : {}ms -> {}",
+        "{} : {}ms -> {} - {:?}",
         response.status(),
         elapsed,
-        response.text().await?
+        response.text().await?,
+        std::thread::current().id()
     );
 
     Ok(())
@@ -120,10 +128,11 @@ async fn request(request_context: RequestContext, client: Client) -> Result<()> 
 #[derive(Debug)]
 pub struct RequestContext {
     url: String,
+    id: i64,
 }
 
 impl PartialEq for RequestContext {
     fn eq(&self, other: &Self) -> bool {
-        self.url == other.url
+        self.url == other.url && self.id == other.id
     }
 }
