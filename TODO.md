@@ -7,6 +7,10 @@
 - tests
 
 
+- fix panics if broken pipe
+- send responses (with body?) down a channel
+
+
 ganda comparison:
 
 seq 1000000 | awk '{printf "http://localhost:8000/foobar/%s\n", $1}' | ganda -W 30 2>&1 | pv -albert > /dev/null
