@@ -1,14 +1,13 @@
+use anyhow::Result;
 use futures::StreamExt;
+use piper::args::Args;
 use reqwest::{Client, Url};
+use std::alloc::handle_alloc_error;
+use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use tokio::sync::mpsc::{self, Receiver};
+use tokio::time::{delay_for, Duration};
 use tokio::{runtime, task};
-use piper::args::Args;
-use std::fs::File;
-use tokio::time::{Duration, delay_for};
-use std::alloc::handle_alloc_error;
-
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 async fn app() -> Result<()> {
     let Args { input } = Args::parse();
@@ -46,7 +45,7 @@ async fn app() -> Result<()> {
                 eprintln!("can't transmit");
                 break;
             }
-        };
+        }
     });
 
     // let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));

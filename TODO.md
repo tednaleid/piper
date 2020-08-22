@@ -6,6 +6,14 @@
 
 - tests
 
+have request_context flow through so we can retry
+
+allow incoming tsv with "$1 $2" style templates
+or json with "${.name}" style templates (json path)
+
+have a dry run that emits the (curl?) expression
+
+
 
 - fix panics if broken pipe
 - send responses (with body?) down a channel
