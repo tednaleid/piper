@@ -1,0 +1,17 @@
+[package]
+name = "echoserver"
+version = "0.1.0"
+authors = ["Ted Naleid <contact@naleid.com>"]
+edition = "2018"
+description = "A simple server using Gotham to echo responses back and test piper"
+
+[dependencies]
+mime = "0.3"
+futures = "0.3.5"
+serde = "1.0"
+serde_derive = "1.0"
+tokio = { version = "0.2.*", features = ["full"] }
+gotham = { git = "https://github.com/gotham-rs/gotham" }
+gotham_derive = { git = "https://github.com/gotham-rs/gotham" }
+
+

@@ -9,19 +9,19 @@ use tokio::sync::mpsc::{self, Receiver};
 use tokio::time::{delay_for, Duration};
 use tokio::{runtime, task};
 
-async fn app() -> Result<()> {
+pub async fn app() -> Result<()> {
     let Args { input } = Args::parse();
 
     let request_client = request_client()?;
 
-    let (mut request_context_tx, mut request_context_rx) = mpsc::channel(16);
+    let (mut request_context_tx, mut request_context_rx) = mpsc::channel(256);
 
-    // plays into the max number of concurrent requests (one being sent, N in the channel, and M in the buffer_unordered on the other end)
-    // the unordered buffer in the response awaiter also plays into it
-    let (mut request_tx, request_rx) = mpsc::channel(16);
+    let (mut request_tx, request_rx) = mpsc::channel(256);
 
     let response_awaiter = tokio::spawn(async move {
-        let mut bu = request_rx.buffer_unordered(32);
+        // number of concurrent requests that we're awaiting
+        // TODO make this a config value
+        let mut bu = request_rx.buffer_unordered(16);
 
         // how should retries be handled? one option, if it isn't built into reqwest, would be to send the request_context back down the pipe with a counter
         // looks like reqwest has a try_clone on the request object for retry reasons (the try is because if the body is a stream, it can't clone that)
@@ -107,7 +107,7 @@ async fn request(request_context: RequestContext, client: Client) -> Result<()> 
 
     // dummy latency on some subset of requests
     // if request_context.id % 2 == 0 {
-    //     delay_for(Duration::from_millis(10)).await;
+    //     delay_for(Duration::from_millis(1000)).await;
     // }
 
     let elapsed = start.elapsed().as_millis();
