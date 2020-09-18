@@ -4,9 +4,9 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::time::Duration;
 
-use gotham::hyper::{Body, Response, StatusCode};
+use gotham::hyper::{body, Body, Response, StatusCode};
 
-use gotham::handler::HandlerResult;
+use gotham::handler::{HandlerResult, HandlerFuture};
 use gotham::helpers::http::response::create_response;
 use gotham::router::builder::DefineSingleRoute;
 use gotham::router::builder::{build_simple_router, DrawRoutes};
@@ -17,7 +17,7 @@ use serde_derive::Deserialize;
 
 use tokio::time::delay_for;
 
-type SleepFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+type SleepFuture = Pin<Box<dyn Future<Output=()> + Send>>;
 
 #[derive(Deserialize, StateData, StaticResponseExtender)]
 struct QueryStringExtractor {
@@ -58,6 +58,18 @@ pub fn ping_pong_handler(state: State) -> (State, Response<Body>) {
     )
 }
 
+fn echo_handler(mut state: State) -> Pin<Box<HandlerFuture>> {
+    let f = body::to_bytes(Body::take_from(&mut state)).then(|full_body| match full_body {
+        Ok(body_content) => {
+            let res = create_response(&state, StatusCode::OK, mime::TEXT_PLAIN, body_content);
+            future::ok((state, res))
+        }
+        Err(e) => future::err((state, e.into())),
+    });
+
+    f.boxed()
+}
+
 fn router() -> Router {
     build_simple_router(|route| {
         route
@@ -65,6 +77,7 @@ fn router() -> Router {
             .with_query_string_extractor::<QueryStringExtractor>()
             .to_async(sleep_handler);
         route.get("/ping").to(ping_pong_handler);
+        route.post("/echo").to(echo_handler);
     })
 }
 
@@ -91,6 +104,18 @@ mod tests {
         );
     }
 
+    fn assert_post_returns_ok(url_str: &str, body_str: &'static str, expected_response: &str) {
+        let test_server = TestServer::new(router()).unwrap();
+        let response = test_server.client().post(url_str, body_str, mime::TEXT_PLAIN).perform().unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            &String::from_utf8(response.read_body().unwrap()).unwrap(),
+            expected_response
+        );
+    }
+
+
     #[test]
     fn sleep_says_how_long_it_slept_for() {
         assert_returns_ok("http://localhost/sleep?seconds=2", "slept 2s");
@@ -99,5 +124,10 @@ mod tests {
     #[test]
     fn ping_returns_pong() {
         assert_returns_ok("http://localhost/ping", "pong");
+    }
+
+    #[test]
+    fn echo_returns_what_was_sent() {
+        assert_post_returns_ok("http://localhost/echo", "echo", "echo");
     }
 }

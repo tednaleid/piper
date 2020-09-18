@@ -1,6 +1,20 @@
-# todo
+# Running/Testing
 
-- get stdin working again
+run the echoserver:
+
+    cargo run --release --package echoserver
+    
+This can be tested with:
+
+    curl -sL "http://localhost:7878/ping"
+    pong 
+
+
+run the app to hit that server:
+
+    seq 1000000 | awk '{printf "http://localhost:7878/ping\n", $1}' | cargo run --release -- | pv -albert > /dev/null
+
+# todo
 
 - errors should error
 
