@@ -1,16 +1,17 @@
 use anyhow::Result;
 use futures::StreamExt;
 use piper::args::Args;
+use piper::context::{FieldValues, OutputTemplate, NEWLINE_BYTE, SPACE_BYTE};
 use reqwest::{Client, Url};
-use std::alloc::handle_alloc_error;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use tokio::sync::mpsc::{self, Receiver};
-use tokio::time::{delay_for, Duration};
-use tokio::{runtime, task};
+use std::str;
+use tokio::runtime;
+use tokio::sync::mpsc::{self};
+use tokio::time::Duration;
 
 pub async fn app() -> Result<()> {
-    let Args { input } = Args::parse();
+    let Args { input, url } = Args::parse();
 
     let request_client = request_client()?;
 
@@ -27,11 +28,8 @@ pub async fn app() -> Result<()> {
         // looks like reqwest has a try_clone on the request object for retry reasons (the try is because if the body is a stream, it can't clone that)
 
         while let Some(handle) = bu.next().await {
-            let _result = match handle {
-                Err(e) => {
-                    eprintln!("error! {}", e);
-                }
-                _ => {}
+            if let Err(e) = handle {
+                eprintln!("error! {}", e);
             };
         }
     });
@@ -51,10 +49,23 @@ pub async fn app() -> Result<()> {
     // let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));
     let reader = create_reader(input)?;
 
+    let field_separator: u8 = SPACE_BYTE;
+    let record_separator: u8 = NEWLINE_BYTE;
+
+    let url_template = OutputTemplate::parse(url.as_str(), field_separator, record_separator);
+
     let mut line_count = 1;
-    for url_result in reader.lines() {
+    for line_result in reader.lines() {
+        let line = line_result?;
+        let values = FieldValues::parse(line.as_bytes(), field_separator, 1);
+
+        let mut out = Vec::new();
+        url_template.write_merged(&mut out, values)?;
+
+        let url = str::from_utf8(&out)?.to_string();
+
         let request_context = RequestContext {
-            url: url_result.unwrap(),
+            url,
             id: line_count,
         };
 

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gotham::hyper::{body, Body, Response, StatusCode};
 
-use gotham::handler::{HandlerResult, HandlerFuture};
+use gotham::handler::{HandlerFuture, HandlerResult};
 use gotham::helpers::http::response::create_response;
 use gotham::router::builder::DefineSingleRoute;
 use gotham::router::builder::{build_simple_router, DrawRoutes};
@@ -17,7 +17,7 @@ use serde_derive::Deserialize;
 
 use tokio::time::delay_for;
 
-type SleepFuture = Pin<Box<dyn Future<Output=()> + Send>>;
+type SleepFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 #[derive(Deserialize, StateData, StaticResponseExtender)]
 struct QueryStringExtractor {
@@ -106,7 +106,11 @@ mod tests {
 
     fn assert_post_returns_ok(url_str: &str, body_str: &'static str, expected_response: &str) {
         let test_server = TestServer::new(router()).unwrap();
-        let response = test_server.client().post(url_str, body_str, mime::TEXT_PLAIN).perform().unwrap();
+        let response = test_server
+            .client()
+            .post(url_str, body_str, mime::TEXT_PLAIN)
+            .perform()
+            .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -114,7 +118,6 @@ mod tests {
             expected_response
         );
     }
-
 
     #[test]
     fn sleep_says_how_long_it_slept_for() {
