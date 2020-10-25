@@ -1,21 +1,15 @@
-use std::io::BufRead;
-use std::io::{self, Write};
-
 use regex::Regex;
 use smallvec::SmallVec;
 use std::cmp::max;
 use std::fmt::*;
+use std::io::{self, Write};
+
+use anyhow::Result;
 
 pub const SPACE_BYTE: u8 = b" "[0];
 pub const COMMA_BYTE: u8 = b","[0];
 pub const NEWLINE_BYTE: u8 = b"\n"[0];
 pub const PIPE_BYTE: u8 = b"|"[0];
-
-// TODO create an input parser sealed class that has a parse method on it that returns a FieldValues
-// and will allow for various kinds of parsing
-// we currently have single byte delimiters with duplicates being treated as extra fields
-// alternate would be to group consecutive values
-// another alternative would let a regexp be applied for splitting
 
 #[derive(PartialEq, Debug)]
 pub struct FieldValues<'a> {
@@ -96,30 +90,30 @@ enum Fragment<'a> {
 
 #[derive(Debug)]
 pub struct OutputTemplate<'a> {
-    field_separator: u8,
-    record_separator: u8,
     raw_template: &'a str,
     fragments: Vec<Fragment<'a>>,
 }
 
 impl PartialEq for OutputTemplate<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.field_separator == other.field_separator
-            && self.record_separator == other.record_separator
-            && self.raw_template == other.raw_template
+           self.raw_template == other.raw_template
             && self.fragments == other.fragments
     }
 }
 
 impl OutputTemplate<'_> {
-    pub fn parse(raw_template: &str, field_separator: u8, record_separator: u8) -> OutputTemplate {
+    pub fn parse(raw_template: &str) -> OutputTemplate {
         let fragments = OutputTemplate::extract_fragments(raw_template);
         OutputTemplate {
-            field_separator,
-            record_separator,
             raw_template,
             fragments,
         }
+    }
+
+    pub fn merge(&self, field_values: FieldValues) -> Result<String> {
+        let mut out = Vec::new();
+        self.write_merged(&mut out, field_values)?;
+        Ok(std::str::from_utf8(&out)?.to_string())
     }
 
     pub fn write_merged(
@@ -139,14 +133,12 @@ impl OutputTemplate<'_> {
 
             writer.write(f).ok();
         });
-        writer.write_all(&[NEWLINE_BYTE])?;
-
         Ok(())
     }
 
     fn extract_fragments(raw_template: &str) -> Vec<Fragment> {
         let field_placeholder_regex = Regex::new(r"(?x)
-            (?P<implicit>\{\})         # a field placeholder without explicit field, ex: {}
+            (?P<implicit>\{})         # a field placeholder without explicit field, ex: {}
             |                          # or
             (?:\{                      # we will have something inside our brackets, {3} or {3,5} or {3,}
                 (?P<start_field>\d+)   # an explicit start field is expected ex: {3} for 3rd field
@@ -155,7 +147,7 @@ impl OutputTemplate<'_> {
                   |
                   (?P<unbounded>,)         # or optionally, there is no explicit end field so it is unbounded, ex: {3,}
                 )?
-            \})
+            })
         ").unwrap();
 
         let mut fragments = Vec::new();
@@ -233,126 +225,68 @@ impl OutputTemplate<'_> {
     }
 }
 
-pub fn merge_input<R, W>(reader: R, writer: &mut W, template: OutputTemplate) -> io::Result<()>
-where
-    R: BufRead,
-    W: Write,
-{
-    // assume that most inputs have relatively similar field lengths per record
-    let mut last_field_count = 0;
-    for line_result in reader.split(template.record_separator) {
-        let line = line_result?;
-        let values =
-            FieldValues::parse(line.as_slice(), template.field_separator, last_field_count);
-        last_field_count = values.delimiter_indexes.len();
-        template.write_merged(writer, values)?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::Fragment::{FieldRange, SingleField, StaticValue, UnboundedFieldRange};
-    use crate::context::{
-        merge_input, FieldValues, OutputTemplate, COMMA_BYTE, NEWLINE_BYTE, PIPE_BYTE, SPACE_BYTE,
-    };
-    use std::io;
+    use crate::context::{FieldValues, OutputTemplate, COMMA_BYTE, SPACE_BYTE};
 
     #[test]
-    fn test_merge_single_field() {
-        let input: &[u8] = b"first second third fourth fifth sixth\n";
-        let cursor = io::Cursor::new(input);
+    fn test_merge_single_value() {
+        let values = FieldValues::parse(b"first second third fourth fifth sixth", SPACE_BYTE, 1);
 
-        let mut out = Vec::new();
-        merge_input(
-            cursor,
-            &mut out,
-            OutputTemplate::parse("single: {2}", SPACE_BYTE, NEWLINE_BYTE),
-        )
-        .unwrap();
-        assert_eq!(out, b"single: second\n");
+        let result = OutputTemplate::parse("single: {2}")
+            .merge(values)
+            .unwrap();
+
+        assert_eq!(result, "single: second");
     }
 
     #[test]
     fn test_merge_range() {
-        let input: &[u8] = b"first second third fourth fifth sixth\n";
-        let cursor = io::Cursor::new(input);
+        let values = FieldValues::parse(b"first second third fourth fifth sixth", SPACE_BYTE, 1);
 
-        let mut out = Vec::new();
-        merge_input(
-            cursor,
-            &mut out,
-            OutputTemplate::parse("range: {1,3}", SPACE_BYTE, NEWLINE_BYTE),
-        )
-        .unwrap();
-        assert_eq!(out, b"range: first second third\n");
+        let result = OutputTemplate::parse("range: {1,3}")
+            .merge(values)
+            .unwrap();
+        assert_eq!(result, "range: first second third");
     }
 
     #[test]
     fn test_merge_unbounded() {
-        let input: &[u8] = b"first second third fourth fifth sixth\n";
-        let cursor = io::Cursor::new(input);
+        let values = FieldValues::parse(b"first second third fourth fifth sixth", SPACE_BYTE, 1);
 
-        let mut out = Vec::new();
-        merge_input(
-            cursor,
-            &mut out,
-            OutputTemplate::parse("range: {4,}", SPACE_BYTE, NEWLINE_BYTE),
-        )
-        .unwrap();
-        assert_eq!(out, b"range: fourth fifth sixth\n");
+        let result = OutputTemplate::parse("range: {4,}")
+            .merge(values)
+            .unwrap();
+
+        assert_eq!(result, "range: fourth fifth sixth");
     }
 
     #[test]
     fn test_merge_all() {
-        let input: &[u8] = b"first second third fourth\n";
-        let cursor = io::Cursor::new(input);
+        let values = FieldValues::parse(b"first second third fourth", SPACE_BYTE, 1);
 
-        let mut out = Vec::new();
-        merge_input(
-            cursor,
-            &mut out,
-            OutputTemplate::parse("all: {0}", SPACE_BYTE, NEWLINE_BYTE),
-        )
-        .unwrap();
-        assert_eq!(out, b"all: first second third fourth\n");
+        let result = OutputTemplate::parse("all: {0}")
+            .merge(values)
+            .unwrap();
+
+        assert_eq!(result, "all: first second third fourth");
     }
 
     #[test]
-    fn test_alternate_field_delimiter() {
-        let input: &[u8] = b"first,second,third,fourth,fifth,sixth\n";
-        let cursor = io::Cursor::new(input);
+    fn test_alternate_field_delimiter_same_output_delimiter() {
+        let values = FieldValues::parse(b"first,second,third,fourth,fifth,sixth", COMMA_BYTE, 1);
 
-        let mut out = Vec::new();
-        merge_input(
-            cursor,
-            &mut out,
-            OutputTemplate::parse("single: {2}", COMMA_BYTE, NEWLINE_BYTE),
-        )
-        .unwrap();
-        assert_eq!(out, b"single: second\n");
-    }
+        let result = OutputTemplate::parse("range: {4,}")
+            .merge(values)
+            .unwrap();
 
-    #[test]
-    fn test_alternate_record_delimiter() {
-        let input: &[u8] = b"first,second,third|fourth,fifth,sixth";
-        let cursor = io::Cursor::new(input);
-
-        let mut out = Vec::new();
-        merge_input(
-            cursor,
-            &mut out,
-            OutputTemplate::parse("single: {2}", COMMA_BYTE, PIPE_BYTE),
-        )
-        .unwrap();
-        assert_eq!(out, b"single: second\nsingle: fifth\n");
+        assert_eq!(result, "range: fourth,fifth,sixth");
     }
 
     #[test]
     fn test_equality() {
         let a = OutputTemplate {
-            field_separator: SPACE_BYTE,
-            record_separator: NEWLINE_BYTE,
             raw_template: "baz",
             fragments: vec![
                 StaticValue(b""),
@@ -363,8 +297,6 @@ mod tests {
         };
 
         let b = OutputTemplate {
-            field_separator: SPACE_BYTE,
-            record_separator: NEWLINE_BYTE,
             raw_template: "baz",
             fragments: vec![
                 StaticValue(b""),

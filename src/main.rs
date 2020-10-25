@@ -1,11 +1,10 @@
 use anyhow::Result;
 use futures::StreamExt;
 use piper::args::Args;
-use piper::context::{FieldValues, OutputTemplate, NEWLINE_BYTE, SPACE_BYTE};
+use piper::context::{FieldValues, OutputTemplate, SPACE_BYTE};
 use reqwest::{Client, Url};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use std::str;
 use tokio::runtime;
 use tokio::sync::mpsc::{self};
 use tokio::time::Duration;
@@ -50,24 +49,23 @@ pub async fn app() -> Result<()> {
     let reader = create_reader(input)?;
 
     let field_separator: u8 = SPACE_BYTE;
-    let record_separator: u8 = NEWLINE_BYTE;
 
-    let url_template = OutputTemplate::parse(url.as_str(), field_separator, record_separator);
+    let url_template = OutputTemplate::parse(url.as_str());
 
     let mut line_count = 1;
     for line_result in reader.lines() {
         let line = line_result?;
         let values = FieldValues::parse(line.as_bytes(), field_separator, 1);
 
-        let mut out = Vec::new();
-        url_template.write_merged(&mut out, values)?;
-
-        let url = str::from_utf8(&out)?.to_string();
+        let url = url_template.merge(values)?;
 
         let request_context = RequestContext {
             url,
             id: line_count,
         };
+
+        // TODO templated headers
+        // TODO output context with the line count/NR id in it
 
         line_count += 1;
 
