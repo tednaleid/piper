@@ -1,5 +1,5 @@
-use predicates::prelude::*; // Used for writing assertions
 use assert_cmd::Command;
+use predicates::prelude::*; // Used for writing assertions
 
 use anyhow::Result;
 
@@ -17,7 +17,6 @@ fn help_emits_usage() -> Result<()> {
 
 /// wants this to be running first
 /// cargo run --release --package echoserver
-
 
 #[test]
 fn pipe_urls_success() -> Result<()> {
@@ -48,4 +47,3 @@ fn url_template_success() -> Result<()> {
 
     Ok(())
 }
-

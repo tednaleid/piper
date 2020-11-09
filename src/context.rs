@@ -96,8 +96,7 @@ pub struct OutputTemplate<'a> {
 
 impl PartialEq for OutputTemplate<'_> {
     fn eq(&self, other: &Self) -> bool {
-           self.raw_template == other.raw_template
-            && self.fragments == other.fragments
+        self.raw_template == other.raw_template && self.fragments == other.fragments
     }
 }
 
@@ -234,9 +233,7 @@ mod tests {
     fn test_merge_single_value() {
         let values = FieldValues::parse(b"first second third fourth fifth sixth", SPACE_BYTE, 1);
 
-        let result = OutputTemplate::parse("single: {2}")
-            .merge(values)
-            .unwrap();
+        let result = OutputTemplate::parse("single: {2}").merge(values).unwrap();
 
         assert_eq!(result, "single: second");
     }
@@ -245,9 +242,7 @@ mod tests {
     fn test_merge_range() {
         let values = FieldValues::parse(b"first second third fourth fifth sixth", SPACE_BYTE, 1);
 
-        let result = OutputTemplate::parse("range: {1,3}")
-            .merge(values)
-            .unwrap();
+        let result = OutputTemplate::parse("range: {1,3}").merge(values).unwrap();
         assert_eq!(result, "range: first second third");
     }
 
@@ -255,9 +250,7 @@ mod tests {
     fn test_merge_unbounded() {
         let values = FieldValues::parse(b"first second third fourth fifth sixth", SPACE_BYTE, 1);
 
-        let result = OutputTemplate::parse("range: {4,}")
-            .merge(values)
-            .unwrap();
+        let result = OutputTemplate::parse("range: {4,}").merge(values).unwrap();
 
         assert_eq!(result, "range: fourth fifth sixth");
     }
@@ -266,9 +259,7 @@ mod tests {
     fn test_merge_all() {
         let values = FieldValues::parse(b"first second third fourth", SPACE_BYTE, 1);
 
-        let result = OutputTemplate::parse("all: {0}")
-            .merge(values)
-            .unwrap();
+        let result = OutputTemplate::parse("all: {0}").merge(values).unwrap();
 
         assert_eq!(result, "all: first second third fourth");
     }
@@ -277,9 +268,7 @@ mod tests {
     fn test_alternate_field_delimiter_same_output_delimiter() {
         let values = FieldValues::parse(b"first,second,third,fourth,fifth,sixth", COMMA_BYTE, 1);
 
-        let result = OutputTemplate::parse("range: {4,}")
-            .merge(values)
-            .unwrap();
+        let result = OutputTemplate::parse("range: {4,}").merge(values).unwrap();
 
         assert_eq!(result, "range: fourth,fifth,sixth");
     }

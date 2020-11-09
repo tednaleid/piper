@@ -53,6 +53,7 @@ pub async fn app() -> Result<()> {
     let url_template = OutputTemplate::parse(url.as_str());
 
     let mut line_count = 1;
+    // TODO should we use read_until instead?
     for line_result in reader.lines() {
         let line = line_result?;
         let values = FieldValues::parse(line.as_bytes(), field_separator, 1);
