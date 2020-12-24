@@ -15,7 +15,7 @@ use gotham::state::{FromState, State};
 use gotham_derive::{StateData, StaticResponseExtender};
 use serde_derive::Deserialize;
 
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 type SleepFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
@@ -35,13 +35,9 @@ fn get_duration(seconds: u64) -> Duration {
     Duration::from_millis(seconds)
 }
 
-fn sleep(seconds: u64) -> SleepFuture {
-    delay_for(get_duration(seconds)).boxed()
-}
-
 async fn sleep_handler(mut state: State) -> HandlerResult {
     let seconds = QueryStringExtractor::take_from(&mut state).seconds;
-    let _ = sleep(seconds).await;
+    let _ = sleep(get_duration(seconds)).await;
 
     let data = format!("slept {}s", seconds);
     let res = create_response(&state, StatusCode::OK, mime::TEXT_PLAIN, data);
