@@ -1,22 +1,25 @@
-use anyhow::Result;
-use futures::StreamExt;
+use anyhow::{Error, Result};
+use futures::{Future, StreamExt};
 use piper::args::Args;
 use piper::context::{FieldValues, OutputTemplate, SPACE_BYTE};
-use reqwest::{Client, Url};
+use reqwest::{Client, Method, Url};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use tokio::runtime;
-use tokio::sync::mpsc::{self};
+use tokio::sync::mpsc::{self, Receiver};
+use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
 pub async fn app() -> Result<()> {
-    let Args { input, url } = Args::parse();
+    let Args { input, method, url } = Args::parse();
 
     let request_client = request_client()?;
 
     let (mut request_context_tx, mut request_context_rx) = mpsc::channel(256);
 
     let (mut request_tx, request_rx) = mpsc::channel(256);
+
+    // TODO punting on refactoring this till reqwest is updated to support tokio 1.0: https://github.com/seanmonstar/reqwest/issues/1123
 
     let response_awaiter = tokio::spawn(async move {
         // number of concurrent requests that we're awaiting
@@ -45,7 +48,6 @@ pub async fn app() -> Result<()> {
         }
     });
 
-    // let reader: Box<BufReader<Stdin>> = Box::new(BufReader::new(io::stdin()));
     let reader = create_reader(input)?;
 
     let field_separator: u8 = SPACE_BYTE;
@@ -53,7 +55,7 @@ pub async fn app() -> Result<()> {
     let url_template = OutputTemplate::parse(url.as_str());
 
     let mut line_count = 1;
-    // TODO should we use read_until instead?
+
     for line_result in reader.lines() {
         let line = line_result?;
         let values = FieldValues::parse(line.as_bytes(), field_separator, 1);
@@ -62,11 +64,9 @@ pub async fn app() -> Result<()> {
 
         let request_context = RequestContext {
             url,
+            method: Method::GET,
             id: line_count,
         };
-
-        // TODO templated headers
-        // TODO output context with the line count/NR id in it
 
         line_count += 1;
 
@@ -113,7 +113,10 @@ fn main() -> Result<()> {
 async fn request(request_context: RequestContext, client: Client) -> Result<()> {
     let start = std::time::Instant::now();
     let url = Url::parse(&request_context.url).unwrap();
-    let response = client.get(url.clone()).send().await?;
+    let response = client
+        .request(request_context.method, url.clone())
+        .send()
+        .await?;
 
     // dummy latency on some subset of requests
     // if request_context.id % 2 == 0 {
@@ -137,11 +140,12 @@ async fn request(request_context: RequestContext, client: Client) -> Result<()> 
 #[derive(Debug)]
 pub struct RequestContext {
     url: String,
+    method: Method,
     id: i64,
 }
 
 impl PartialEq for RequestContext {
     fn eq(&self, other: &Self) -> bool {
-        self.url == other.url && self.id == other.id
+        self.url == other.url && self.method == other.method && self.id == other.id
     }
 }

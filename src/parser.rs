@@ -23,7 +23,7 @@ enum Fragment<'a> {
     UnboundedFieldRange(usize),
 }
 
-// TODO make this do the FromString thing from the docs: https://docs.rs/nom/6.0.0/nom/recipes/index.html#implementing-fromstr
+// TODO make this do the FromString thing from the docs: https://docs.rs/nom/6.0.1/nom/recipes/index.html#implementing-fromstr
 
 #[derive(Debug)]
 pub struct Template<'a> {

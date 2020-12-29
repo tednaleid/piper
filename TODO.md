@@ -1,3 +1,43 @@
+# todo
+
+- refactor the input reader so that it is a nom parser that can split records/fields on whatever the user has told us to split on
+- we eventually want to delete the context module, or totally refactor it to use the parser
+
+on startup, we parse any template arguments with the nom parser and create a request_context object out of it
+
+request_context has
+
+- resolved url
+- http method  
+- ordinal request number
+
+request_builder_config has
+- url template
+- method template/literal
+  
+response_builder_config has
+- response template
+- config for output (stdout/files)
+- results on stderr (or quiet)
+- colorized or not
+
+
+TODO start here: start with the request context with a resolved url
+
+next:
+- resolved headers
+- input record fields? 
+  - in case we want to carry context forward 
+  - this can start dumb and always be present, we could remove it later if we don't care about it because it isn't in an output template
+
+
+
+# todo post requwest/tokio 1.0 update
+
+- can we abstract away the actual request so that we can swap out the back end call with a passed in function?
+
+
+
 # Running/Testing
 
 run the echoserver:
@@ -34,10 +74,15 @@ use cases:
 Things we want to be able to format and send to the server:
 - the url
     - -u/--url <format string>
+    - input fields/literals
 - a body string/binary
     -b / --body <format string>
+    - input fields/literals
 - the HTTP method
-    -- -X/method <string>
+    - -X/--method <string>
+    - input fields/literals
+    
+    
 - 1..N headers with key/values
     -- -H/--header <format string> -- is this a single string that we break down, split on `:`, kv pairs?
     - some could be static, some could be per request
@@ -47,11 +92,12 @@ Things we definitely want the ability to output:
   - the return HTTP code
     - `%X`
   - the response body/binary
-    - `%s` 
+    - `%s`
   - the request url
     - `%u`
   - input context values (correlation IDs)
     - `%1`..`%N` or format string input, same as pipem?
+  - the request ordinal  
   
 Possible things to output:
   - response headers
@@ -85,11 +131,20 @@ examples:
     --context <format string>, -c <format string> - the context for the request  
       - how would this be used on the output
 
-# todo
 
-- errors should error
 
-- tests
+
+
+
+
+
+
+
+
+
+
+
+
 
 have request_context flow through so we can retry
 

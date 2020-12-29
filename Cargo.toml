@@ -11,7 +11,8 @@ repository = "https://github.com/tednaleid/piper"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-clap = "2.33.3"
+#clap = "2.33.3"
+clap = "3.0.0-beta.2"
 crossbeam = "0.8.0"
 crossterm = "0.18.2"
 anyhow = "1.0"
