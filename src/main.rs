@@ -8,12 +8,18 @@ use std::io::{self, BufRead, BufReader};
 use tokio::runtime;
 use tokio::sync::mpsc::{self, Receiver};
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
+use tokio::time::{delay_for, Duration};
 
 pub async fn app() -> Result<()> {
-    let Args { input, method, url } = Args::parse();
+    let Args {
+        input,
+        method,
+        url,
+        parallel,
+        timeout_seconds,
+    } = Args::parse()?;
 
-    let request_client = request_client()?;
+    let request_client = request_client(timeout_seconds)?;
 
     let (mut request_context_tx, mut request_context_rx) = mpsc::channel(256);
 
@@ -22,9 +28,7 @@ pub async fn app() -> Result<()> {
     // TODO punting on refactoring this till reqwest is updated to support tokio 1.0: https://github.com/seanmonstar/reqwest/issues/1123
 
     let response_awaiter = tokio::spawn(async move {
-        // number of concurrent requests that we're awaiting
-        // TODO make this a config value
-        let mut bu = request_rx.buffer_unordered(16);
+        let mut bu = request_rx.buffer_unordered(parallel);
 
         // how should retries be handled? one option, if it isn't built into reqwest, would be to send the request_context back down the pipe with a counter
         // looks like reqwest has a try_clone on the request object for retry reasons (the try is because if the body is a stream, it can't clone that)
@@ -39,6 +43,7 @@ pub async fn app() -> Result<()> {
     let request_maker = tokio::spawn(async move {
         while let Some(request_context) = request_context_rx.recv().await {
             // TODO decide about this, spawning a task gives about 2x the throughput, but adds a level of indirection on the awaiting
+            // might be nice to have this as a task as then we could do more in that task, such as retries/following redirects/etc
             // let resp = task::spawn(request(request_context, request_client.clone()));
             let resp = request(request_context, request_client.clone());
             if request_tx.send(resp).await.is_err() {
@@ -64,7 +69,7 @@ pub async fn app() -> Result<()> {
 
         let request_context = RequestContext {
             url,
-            method: Method::GET,
+            method: method.clone(),
             id: line_count,
         };
 
@@ -94,8 +99,8 @@ fn create_reader(input: String) -> Result<Box<dyn BufRead>> {
     Ok(reader)
 }
 
-fn request_client() -> Result<Client> {
-    let timeout = Duration::new(10, 0);
+fn request_client(timeout_seconds: u64) -> Result<Client> {
+    let timeout = Duration::new(timeout_seconds, 0);
     let client = Client::builder().timeout(timeout).gzip(true).build()?;
     Ok(client)
 }
@@ -119,13 +124,13 @@ async fn request(request_context: RequestContext, client: Client) -> Result<()> 
         .await?;
 
     // dummy latency on some subset of requests
-    // if request_context.id % 2 == 0 {
+    // if request_context.id % 1 == 0 {
     //     delay_for(Duration::from_millis(1000)).await;
     // }
 
     let elapsed = start.elapsed().as_millis();
 
-    // TODO switch output to a byte stream? something more configurable than just text?
+    // TODO have this send the value down another channel for further processing/resolving
     println!(
         "{} : {}ms -> {} - {:?}",
         response.status(),
