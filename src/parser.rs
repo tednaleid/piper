@@ -1,4 +1,4 @@
-use crate::parser::Fragment::{EscapedChar, FieldRange, SingleField};
+use crate::parser::RequestFragment::{EscapedChar, FieldRange, SingleField};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till1, take_while_m_n};
 use nom::character::complete::{anychar, char, digit1};
@@ -9,8 +9,12 @@ use nom::sequence::{delimited, preceded, tuple};
 use nom::{error::Error, IResult};
 use std::num::ParseIntError;
 
+/// Template fragments that are valid at request time, so
+/// - numeric fields/ranges from the input
+/// - string literals
+/// - escaped characters
 #[derive(PartialEq, Debug)]
-enum Fragment<'a> {
+enum RequestFragment<'a> {
     // "a value" - a literal string
     Literal(&'a [u8]),
     // a backslash escaped character, ex: '\{' -> {   or '\\' -> \
@@ -23,15 +27,53 @@ enum Fragment<'a> {
     UnboundedFieldRange(usize),
 }
 
-// TODO make this do the FromString thing from the docs: https://docs.rs/nom/6.0.1/nom/recipes/index.html#implementing-fromstr
+/// Template fragments that are valid at response time, so
+/// - anything that's valid at request time
+/// - resolved values from the request (headers, etc)?
+/// - values we've exposed from the response
+///   - body
+///   - status code
+///   - response headers
+/// - metadata about the request
+///   - request time
+///   - request duration
+#[derive(PartialEq, Debug)]
+enum ResponseFragment<'a> {
+    // all of the values that are valid for building the request
+    RequestFragment(RequestFragment<'a>),
 
-#[derive(Debug)]
-pub struct Template<'a> {
-    raw_template: &'a str,
-    fragments: Vec<Fragment<'a>>,
+    // plus resolved values/metadata from the request
+    RequestUrl,
+    RequestTime,
+    RequestDuration,
+    RequestHeader(&'a [u8]), // value is the header key
+
+    // exposed values from the response
+    ResponseBody,
+    ResponseStatusCode,
+    ResponseHeader(&'a [u8]), // value is the header key
 }
 
-impl PartialEq for Template<'_> {
+// TODO make this do the FromString thing from the docs: https://docs.rs/nom/6.0.1/nom/recipes/index.html#implementing-fromstr
+#[derive(Debug)]
+pub struct RequestTemplate<'a> {
+    raw_template: &'a str,
+    fragments: Vec<RequestFragment<'a>>,
+}
+
+impl PartialEq for RequestTemplate<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw_template == other.raw_template && self.fragments == other.fragments
+    }
+}
+
+#[derive(Debug)]
+pub struct ResponseTemplate<'a> {
+    raw_template: &'a str,
+    fragments: Vec<ResponseFragment<'a>>,
+}
+
+impl PartialEq for ResponseTemplate<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.raw_template == other.raw_template && self.fragments == other.fragments
     }
@@ -54,11 +96,11 @@ fn inside_brackets(input: &str) -> IResult<&str, &str> {
     delimited(char('{'), till_closing_bracket, char('}'))(input)
 }
 
-/// parses a field enclosed in curly brackets into a Fragment, one of:
+/// parses a numeric field enclosed in curly brackets into a Fragment, one of:
 /// - SingleField: "{1}" -> SingleField(1)
 /// - FieldRange: "{1,4}" -> FieldRange(1,4)
 /// - UnboundedFieldRange: "{3,}" -> UnboundedFieldRange(3)
-fn parse_field(input: &str) -> nom::IResult<&str, Fragment> {
+fn parse_numeric_field(input: &str) -> nom::IResult<&str, RequestFragment> {
     let (remaining, inside) = inside_brackets(input)?;
 
     let field_result = alt((
@@ -70,36 +112,48 @@ fn parse_field(input: &str) -> nom::IResult<&str, Fragment> {
     Ok((remaining, field_result.1))
 }
 
-// fn parse_fragment(input: &str) -> nom::IResult<&str, Fragment> {
-// // TODO parse field plus literal and escaped character
-// }
+/// parses fragments that are valid for request values
+/// possible values at this time are the numeric fields from the input
+/// as well as string literals and escaped characters
+fn parse_request_fragment(input: &str) -> nom::IResult<&str, RequestFragment> {
+    todo!()
+}
+
+// TODO create parse fragment that allows request and response fields
+/// parses fragments that are valid for response values
+/// possible values are everything that is on the request (so the input fields)
+/// as well as anything that we've exposed from the response
+/// as well as metadata about the request (such as when it was made and the duration of the request)
+fn parse_response_fragment(input: &str) -> nom::IResult<&str, ResponseFragment> {
+    todo!()
+}
 
 fn parse_num(input: &str) -> IResult<&str, usize> {
     map_res(digit1, |digit_str: &str| digit_str.parse::<usize>())(input)
 }
 
-fn parse_single_field(input: &str) -> nom::IResult<&str, Fragment> {
+fn parse_single_field(input: &str) -> nom::IResult<&str, RequestFragment> {
     let (remainder, field_number) = all_consuming(parse_num)(input)?;
-    Ok((remainder, Fragment::SingleField(field_number)))
+    Ok((remainder, RequestFragment::SingleField(field_number)))
 }
 
-fn parse_field_range(input: &str) -> nom::IResult<&str, Fragment> {
+fn parse_field_range(input: &str) -> nom::IResult<&str, RequestFragment> {
     let (_, (start, _, end)) = all_consuming(tuple((parse_num, char(','), parse_num)))(input)?;
 
-    Ok(("", Fragment::FieldRange(start, end)))
+    Ok(("", RequestFragment::FieldRange(start, end)))
 }
 
-fn parse_unbounded_field_range(input: &str) -> nom::IResult<&str, Fragment> {
+fn parse_unbounded_field_range(input: &str) -> nom::IResult<&str, RequestFragment> {
     let (_, (start, _)) = all_consuming(tuple((parse_num, char(','))))(input)?;
 
-    Ok(("", Fragment::UnboundedFieldRange(start)))
+    Ok(("", RequestFragment::UnboundedFieldRange(start)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parser::parse_literal;
-    use crate::parser::Fragment::{FieldRange, Literal, UnboundedFieldRange};
+    use crate::parser::RequestFragment::{FieldRange, Literal, UnboundedFieldRange};
     use nom::bytes::complete::take_while;
     use nom::error::ErrorKind::{Char, Eof, IsNot, TakeTill1};
 
@@ -129,9 +183,9 @@ mod tests {
         assert_eq!(parse_escaped_char("\\} fox"), Ok((" fox", '}')));
         assert_eq!(parse_escaped_char("\\n fox"), Ok((" fox", 'n')));
         assert_eq!(
-            parse_escaped_char("no slash at start \\ fox"),
+            parse_escaped_char("first char must be backslash \\ fox"),
             Err(nom::Err::Error(Error::new(
-                "no slash at start \\ fox",
+                "first char must be backslash \\ fox",
                 Char
             )))
         );
@@ -150,11 +204,27 @@ mod tests {
         assert_eq!(inside_brackets("{2,4}"), Ok(("", "2,4")));
         assert_eq!(inside_brackets("{200,400}"), Ok(("", "200,400")));
 
-        // inside brackets doesn't only look for numbers, that's for another combinator to decide
+        // inside brackets can also look for character sequences, really anything till the closing curly brace
         assert_eq!(inside_brackets("{foobar}"), Ok(("", "foobar")));
         assert_eq!(inside_brackets("{foo bar}"), Ok(("", "foo bar")));
 
-        // it leaves the things alone after the brackets
+        assert_eq!(inside_brackets("{H}"), Ok(("", "H")));
+        assert_eq!(
+            inside_brackets("{H:content-length}"),
+            Ok(("", "H:content-length"))
+        );
+
+        // utf-8 works too
+        assert_eq!(inside_brackets("{💯}"), Ok(("", "💯")));
+
+        // it is _not_ currently smart enough to allow nested curly brackets
+        assert_eq!(
+            inside_brackets("{foo \\{\\} bar}"),
+            Ok((" bar}", "foo \\{\\"))
+        );
+        assert_eq!(inside_brackets("{foo {} bar}"), Ok((" bar}", "foo {")));
+
+        // it leaves the things alone after the closing bracket
         assert_eq!(inside_brackets("{1} after"), Ok((" after", "1")));
     }
 
@@ -212,37 +282,55 @@ mod tests {
     #[test]
     fn test_parse_field() {
         // extract different kinds of fields without static text
-        assert_eq!(parse_field("{1}"), Ok(("", SingleField(1))));
-        assert_eq!(parse_field("{100}"), Ok(("", SingleField(100))));
-        assert_eq!(parse_field("{2,}"), Ok(("", UnboundedFieldRange(2))));
-        assert_eq!(parse_field("{200,}"), Ok(("", UnboundedFieldRange(200))));
-        assert_eq!(parse_field("{2,4}"), Ok(("", FieldRange(2, 4))));
-        assert_eq!(parse_field("{200,400}"), Ok(("", FieldRange(200, 400))));
+        assert_eq!(parse_numeric_field("{1}"), Ok(("", SingleField(1))));
+        assert_eq!(parse_numeric_field("{100}"), Ok(("", SingleField(100))));
+        assert_eq!(
+            parse_numeric_field("{2,}"),
+            Ok(("", UnboundedFieldRange(2)))
+        );
+        assert_eq!(
+            parse_numeric_field("{200,}"),
+            Ok(("", UnboundedFieldRange(200)))
+        );
+        assert_eq!(parse_numeric_field("{2,4}"), Ok(("", FieldRange(2, 4))));
+        assert_eq!(
+            parse_numeric_field("{200,400}"),
+            Ok(("", FieldRange(200, 400)))
+        );
 
         // extract different kinds of fields followed by other text
-        assert_eq!(parse_field("{1} after"), Ok((" after", SingleField(1))));
-        assert_eq!(parse_field("{2} after"), Ok((" after", SingleField(2))));
         assert_eq!(
-            parse_field("{2,} after"),
+            parse_numeric_field("{1} after"),
+            Ok((" after", SingleField(1)))
+        );
+        assert_eq!(
+            parse_numeric_field("{2} after"),
+            Ok((" after", SingleField(2)))
+        );
+        assert_eq!(
+            parse_numeric_field("{2,} after"),
             Ok((" after", UnboundedFieldRange(2)))
         );
-        assert_eq!(parse_field("{2,4} after"), Ok((" after", FieldRange(2, 4))));
+        assert_eq!(
+            parse_numeric_field("{2,4} after"),
+            Ok((" after", FieldRange(2, 4)))
+        );
 
         // error if we don't close our field appropriately
         assert_eq!(
-            parse_field("{1"),
+            parse_numeric_field("{1"),
             Err(nom::Err::Error(Error::new("", Char)))
         );
 
         // error if we have some invalid text inside
         assert_eq!(
-            parse_field("{f}"),
+            parse_numeric_field("{f}"),
             Err(nom::Err::Error(Error::new("f", Digit)))
         );
     }
 
     #[test]
-    fn test_parse_fragment() {
+    fn test_parse_request_fragment() {
         // TODO test above plus getting literal and escaped character out
         // TODO next make these tests pass
         // assert_eq!(parse_fragment("before {1} after"), Ok(("{1} after", Literal("before ".as_bytes()))));

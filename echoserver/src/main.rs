@@ -17,8 +17,6 @@ use serde_derive::Deserialize;
 
 use tokio::time::sleep;
 
-type SleepFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
-
 #[derive(Deserialize, StateData, StaticResponseExtender)]
 struct QueryStringExtractor {
     seconds: u64,

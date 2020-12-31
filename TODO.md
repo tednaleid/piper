@@ -1,9 +1,31 @@
 # todo
+todo next:
+- delete the context module, or totally refactor it to use the parser
+- refactor/delete the context module so that it uses what we've parsed with nom
+
+
+- do we have gzip headers on by default? maybe a flag to turn that off?
+
+
+runtime in tests after tokio 1.0 upgrade: 
+
+https://github.com/messense/reqwest/blob/af8513e2efd572efdd418548a43c8f059a820a30/src/async_impl/multipart.rs
+
+    use tokio::{self, runtime};
+
+    #[test]
+    fn form_empty() {
+        let form = Form::new();
+
+        let rt = runtime::Builder::new_current_thread().enable_all().build().expect("new rt");
+        let body = form.stream().into_stream();
+        let s = body.map_ok(|try_c| try_c.to_vec()).try_concat();
+
+        let out = rt.block_on(s);
+        assert!(out.unwrap().is_empty());
+    }
 
 - refactor the input reader so that it is a nom parser that can split records/fields on whatever the user has told us to split on
-- we eventually want to delete the context module, or totally refactor it to use the parser
-
-on startup, we parse any template arguments with the nom parser and create a request_context object out of it
 
 request_context has
 
@@ -43,28 +65,33 @@ next:
 response_output can have
 mvp:
     - just output body text as a string
+        - `{b}` / `{body}`
 next:
     - response template
     - response headers as template
-        - `{%header_name%}`?
-            - would that just be the value then?
-            - null when not present? or empty string
         - or `%H` to emit all headers
             - as n=v CSV?
             - or just in the JSON output?
+        - or `{H}`/`{header}` for all response headers
+            - and `{H:header name}` for a specific header? null is missing?
+            - length could be handled with `{H:content-length}` with this
+            - request headers could be `{R}` / `{R:Accept}`
     - request/response timing duration
+        - `{d}`/`{duration}`
     - request timestamp 
-        - ISO-8601
-        - or unix timestamp
-    - response payload length
+        - unix timestamp (or ISO-8601?)
+          - `{t}` / `{timestamp}`
     - request url
+        - `{u}` / `{url}`
     - response status code
+        - `{s}` / `{status}`
     - standard json output
+    - index into json values with json path expression? `{.value}` / `{.value_array[0].child.property}` or null
     - other output types
         - uuencoded
         - url/json escaped
         - hash of bytes
-    - config for output (stdout/files)
+    - config for output (stdout/directory of files)
     - per-request results on stderr (or quiet)
     - colorized or not
     - JSON envelope

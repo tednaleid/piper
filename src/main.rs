@@ -2,7 +2,7 @@ use anyhow::{Error, Result};
 use futures::{Future, StreamExt};
 use piper::args::Args;
 use piper::context::{FieldValues, OutputTemplate, SPACE_BYTE};
-use reqwest::{Client, Method, Url, StatusCode};
+use reqwest::{Client, Method, StatusCode, Url};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use tokio::runtime;
@@ -32,10 +32,6 @@ pub async fn app() -> Result<()> {
     // doing the receiving where they have a mailbox that we can get access to (the tx) and the rx is internal
     let response_awaiter = tokio::spawn(async move {
         let mut bu = request_rx.buffer_unordered(parallel);
-
-        // how should retries be handled? one option, if it isn't built into reqwest, would be to send the request_context back down the pipe with a counter
-        // looks like reqwest has a try_clone on the request object for retry reasons (the try is because if the body is a stream, it can't clone that)
-
         while let Some(handle) = bu.next().await {
             if let Err(e) = handle {
                 eprintln!("error! {}", e);
@@ -57,7 +53,7 @@ pub async fn app() -> Result<()> {
 
     let output_handler = tokio::spawn(async move {
         while let Some(response_context) = response_rx.recv().await {
-            println!("{}",  response_context.text);
+            println!("{}", response_context.text);
         }
     });
 
@@ -124,14 +120,17 @@ fn main() -> Result<()> {
     rt.block_on(future)
 }
 
-async fn request(request_context: RequestContext, client: Client, mut response_tx: Sender<ResponseContext>) -> Result<()> {
+async fn request(
+    request_context: RequestContext,
+    client: Client,
+    mut response_tx: Sender<ResponseContext>,
+) -> Result<()> {
     let start = std::time::Instant::now();
     let url = Url::parse(&request_context.url).unwrap();
     let response = client
         .request(request_context.method.clone(), url.clone())
         .send()
         .await?;
-
 
     // dummy latency on some subset of requests
     // if request_context.id % 1 == 0 {
@@ -165,7 +164,6 @@ pub struct ResponseContext {
     // eventually this will be bytes or something else
     elapsed: Duration,
 }
-
 
 impl PartialEq for RequestContext {
     fn eq(&self, other: &Self) -> bool {
