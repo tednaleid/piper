@@ -2,11 +2,11 @@ use anyhow::{Error, Result};
 use futures::{Future, StreamExt};
 use piper::args::Args;
 use piper::context::{FieldValues, OutputTemplate, SPACE_BYTE};
-use reqwest::{Client, Method, Url};
+use reqwest::{Client, Method, Url, StatusCode};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use tokio::runtime;
-use tokio::sync::mpsc::{self, Receiver};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
 use tokio::time::{delay_for, Duration};
 
@@ -25,8 +25,11 @@ pub async fn app() -> Result<()> {
 
     let (mut request_tx, request_rx) = mpsc::channel(256);
 
-    // TODO punting on refactoring this till reqwest is updated to support tokio 1.0: https://github.com/seanmonstar/reqwest/issues/1123
+    let (mut response_tx, mut response_rx) = mpsc::channel(256);
 
+    // TODO punting on refactoring this till reqwest is updated to support tokio 1.0: https://github.com/seanmonstar/reqwest/issues/1123
+    // TODO these could be transformed into something closer to an actor and paired with the thing
+    // doing the receiving where they have a mailbox that we can get access to (the tx) and the rx is internal
     let response_awaiter = tokio::spawn(async move {
         let mut bu = request_rx.buffer_unordered(parallel);
 
@@ -42,14 +45,19 @@ pub async fn app() -> Result<()> {
 
     let request_maker = tokio::spawn(async move {
         while let Some(request_context) = request_context_rx.recv().await {
-            // TODO decide about this, spawning a task gives about 2x the throughput, but adds a level of indirection on the awaiting
             // might be nice to have this as a task as then we could do more in that task, such as retries/following redirects/etc
             // let resp = task::spawn(request(request_context, request_client.clone()));
-            let resp = request(request_context, request_client.clone());
+            let resp = request(request_context, request_client.clone(), response_tx.clone());
             if request_tx.send(resp).await.is_err() {
                 eprintln!("can't transmit");
                 break;
             }
+        }
+    });
+
+    let output_handler = tokio::spawn(async move {
+        while let Some(response_context) = response_rx.recv().await {
+            println!("{}",  response_context.text);
         }
     });
 
@@ -86,6 +94,7 @@ pub async fn app() -> Result<()> {
 
     let _ = request_maker.await;
     let _ = response_awaiter.await;
+    let _ = output_handler.await;
 
     Ok(())
 }
@@ -115,29 +124,28 @@ fn main() -> Result<()> {
     rt.block_on(future)
 }
 
-async fn request(request_context: RequestContext, client: Client) -> Result<()> {
+async fn request(request_context: RequestContext, client: Client, mut response_tx: Sender<ResponseContext>) -> Result<()> {
     let start = std::time::Instant::now();
     let url = Url::parse(&request_context.url).unwrap();
     let response = client
-        .request(request_context.method, url.clone())
+        .request(request_context.method.clone(), url.clone())
         .send()
         .await?;
+
 
     // dummy latency on some subset of requests
     // if request_context.id % 1 == 0 {
     //     delay_for(Duration::from_millis(1000)).await;
     // }
 
-    let elapsed = start.elapsed().as_millis();
+    let response_context = ResponseContext {
+        request_context,
+        status: response.status(),
+        text: response.text().await?,
+        elapsed: start.elapsed(),
+    };
 
-    // TODO have this send the value down another channel for further processing/resolving
-    println!(
-        "{} : {}ms -> {} - {:?}",
-        response.status(),
-        elapsed,
-        response.text().await?,
-        std::thread::current().id()
-    );
+    response_tx.send(response_context).await?;
 
     Ok(())
 }
@@ -148,6 +156,16 @@ pub struct RequestContext {
     method: Method,
     id: i64,
 }
+
+#[derive(Debug)]
+pub struct ResponseContext {
+    request_context: RequestContext,
+    status: StatusCode,
+    text: String,
+    // eventually this will be bytes or something else
+    elapsed: Duration,
+}
+
 
 impl PartialEq for RequestContext {
     fn eq(&self, other: &Self) -> bool {
