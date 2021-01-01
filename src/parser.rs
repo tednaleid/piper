@@ -5,15 +5,19 @@ use nom::character::complete::{anychar, char, digit1};
 use nom::combinator::{all_consuming, map, map_opt, map_res, value};
 use nom::error::ErrorKind::Digit;
 use nom::error::{FromExternalError, ParseError};
+use nom::multi::{fold_many0, fold_many0c};
 use nom::sequence::{delimited, preceded, tuple};
-use nom::{error::Error, IResult};
+use nom::{error::Error, AsBytes, IResult};
 use std::num::ParseIntError;
+use std::str::FromStr;
+
+use anyhow::Result;
 
 /// Template fragments that are valid at request time, so
 /// - numeric fields/ranges from the input
 /// - string literals
 /// - escaped characters
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 enum RequestFragment<'a> {
     // "a value" - a literal string
     Literal(&'a [u8]),
@@ -37,7 +41,7 @@ enum RequestFragment<'a> {
 /// - metadata about the request
 ///   - request time
 ///   - request duration
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 enum ResponseFragment<'a> {
     // all of the values that are valid for building the request
     RequestFragment(RequestFragment<'a>),
@@ -59,6 +63,39 @@ enum ResponseFragment<'a> {
 pub struct RequestTemplate<'a> {
     raw_template: &'a str,
     fragments: Vec<RequestFragment<'a>>,
+}
+
+// impl<'a> FromStr for RequestTemplate<'a> {
+//     // type Err = Error<&'a str>; // the error must be owned as well
+//     type Err = anyhow::Error;
+//     // type Err = nom::Err<E>;
+//
+//     fn from_str(s: &str) -> Result<Self> {
+//         // todo make this a function
+//         let (_, fragments) = fold_many0(
+//             parse_request_fragment,
+//             Vec::new(),
+//             |mut request_fragments: Vec<_>, request_fragment| {
+//                 request_fragments.push(request_fragment.clone());
+//                 request_fragments
+//             },
+//         )(s)?;
+//         Ok(RequestTemplate {
+//             raw_template: s.clone(),
+//             fragments,
+//         })
+//     }
+// }
+
+fn parse_request_fragments(s: &str) -> IResult<&str, Vec<RequestFragment>> {
+    fold_many0(
+        parse_request_fragment,
+        Vec::new(),
+        |mut request_fragments: Vec<_>, request_fragment| {
+            request_fragments.push(request_fragment.clone());
+            request_fragments
+        },
+    )(s)
 }
 
 impl PartialEq for RequestTemplate<'_> {
@@ -84,8 +121,18 @@ fn parse_literal(input: &str) -> nom::IResult<&str, &str> {
     nom::bytes::complete::is_not("{\\")(input)
 }
 
+fn parse_literal_fragment(input: &str) -> nom::IResult<&str, RequestFragment> {
+    let (remainder, literal) = parse_literal(input)?;
+    Ok((remainder, RequestFragment::Literal(literal.as_bytes())))
+}
+
 fn parse_escaped_char(input: &str) -> IResult<&str, char> {
     preceded(char('\\'), anychar)(input)
+}
+
+fn parse_escaped_char_fragment(input: &str) -> nom::IResult<&str, RequestFragment> {
+    let (remainder, char) = parse_escaped_char(input)?;
+    Ok((remainder, RequestFragment::EscapedChar(char)))
 }
 
 fn till_closing_bracket(s: &str) -> IResult<&str, &str> {
@@ -116,7 +163,11 @@ fn parse_numeric_field(input: &str) -> nom::IResult<&str, RequestFragment> {
 /// possible values at this time are the numeric fields from the input
 /// as well as string literals and escaped characters
 fn parse_request_fragment(input: &str) -> nom::IResult<&str, RequestFragment> {
-    todo!()
+    alt((
+        parse_literal_fragment,
+        parse_escaped_char_fragment,
+        parse_numeric_field,
+    ))(input)
 }
 
 // TODO create parse fragment that allows request and response fields
@@ -186,7 +237,7 @@ mod tests {
             parse_escaped_char("first char must be backslash \\ fox"),
             Err(nom::Err::Error(Error::new(
                 "first char must be backslash \\ fox",
-                Char
+                Char,
             )))
         );
     }
@@ -331,23 +382,106 @@ mod tests {
 
     #[test]
     fn test_parse_request_fragment() {
-        // TODO test above plus getting literal and escaped character out
-        // TODO next make these tests pass
-        // assert_eq!(parse_fragment("before {1} after"), Ok(("{1} after", Literal("before ".as_bytes()))));
-        // assert_eq!(parse_fragment("before \\{1\\} after"), Ok(("\\{1\\} after", Literal("before ".as_bytes()))));
-        //
-        // assert_eq!(parse_fragment("\\after"), Ok(("after", EscapedChar('\\'))));
-        //
-        // assert_eq!(parse_fragment("{1} after"), Ok((" after", SingleField(1))));
-        // assert_eq!(parse_fragment("{2,} after"), Ok((" after", UnboundedFieldRange(2))));
-        // assert_eq!(parse_fragment("{2,4} after"), Ok((" after", FieldRange(2, 4))));
-        //
-        // // TODO error conditions? this might not be the right error
-        // assert_eq!(parse_fragment("{2,4\\} after"), Err(nom::Err::Error(Error::new("\\", Digit))));
+        assert_eq!(
+            parse_request_fragment("before {1} after"),
+            Ok(("{1} after", Literal("before ".as_bytes())))
+        );
+        assert_eq!(
+            parse_request_fragment("before \\{1\\} after"),
+            Ok(("\\{1\\} after", Literal("before ".as_bytes())))
+        );
+
+        assert_eq!(
+            parse_request_fragment("\\\\ after"),
+            Ok((" after", EscapedChar('\\')))
+        );
+        assert_eq!(
+            parse_request_fragment("\\{ after"),
+            Ok((" after", EscapedChar('{')))
+        );
+
+        assert_eq!(
+            parse_request_fragment("{1} after"),
+            Ok((" after", SingleField(1)))
+        );
+        assert_eq!(
+            parse_request_fragment("{2,} after"),
+            Ok((" after", UnboundedFieldRange(2)))
+        );
+        assert_eq!(
+            parse_request_fragment("{2,4} after"),
+            Ok((" after", FieldRange(2, 4)))
+        );
+
+        // malformed expression, no closing bracket matching the opening one
+        assert_eq!(
+            parse_request_fragment("{2,4\\} after"),
+            Err(nom::Err::Error(Error::new("4\\", Eof)))
+        );
     }
 
     #[test]
-    fn test_extract_template() {
-        // combine the two
+    fn test_parse_request_fragments() {
+        assert_eq!(parse_request_fragments(""), Ok(("", vec![])));
+        assert_eq!(
+            parse_request_fragments("abc"),
+            Ok(("", vec![Literal("abc".as_bytes())]))
+        );
+        assert_eq!(
+            parse_request_fragments("\\{"),
+            Ok(("", vec![EscapedChar('{')]))
+        );
+        assert_eq!(
+            parse_request_fragments("{1}"),
+            Ok(("", vec![SingleField(1)]))
+        );
+        assert_eq!(
+            parse_request_fragments("{1,3}"),
+            Ok(("", vec![FieldRange(1, 3)]))
+        );
+        assert_eq!(
+            parse_request_fragments("{3,}"),
+            Ok(("", vec![UnboundedFieldRange(3)]))
+        );
+
+        assert_eq!(
+            parse_request_fragments("a {1} \\{\\} {3,} b {4,6} end\n"),
+            Ok((
+                "",
+                vec![
+                    Literal("a ".as_bytes()),
+                    SingleField(1),
+                    Literal(" ".as_bytes()),
+                    EscapedChar('{'),
+                    EscapedChar('}'),
+                    Literal(" ".as_bytes()),
+                    UnboundedFieldRange(3),
+                    Literal(" b ".as_bytes()),
+                    FieldRange(4, 6),
+                    Literal(" end\n".as_bytes()),
+                ]
+            ))
+        );
+
+        // malformed expression, shouldn't eat anything and leave the rest for other parsers to deal with
+        assert_eq!(
+            parse_request_fragments("{2,4\\} after"),
+            Ok(("{2,4\\} after", vec![])),
+        );
     }
+
+    // TODO start here, we now have a method that'll parse out request fragments, we want it to
+    // NOT return OK if it can't eat everything in the template string, otherwise it should return
+    // the RequestTemplate
+
+    // #[test]
+    // fn test_request_template_from_str() {
+    //     assert_eq!(
+    //         "just a literal".parse::<RequestTemplate>(),
+    //         Ok(RequestTemplate {
+    //             raw_template: "just a literal",
+    //             fragments: vec![Literal("just a literal".as_bytes())],
+    //         })
+    //     );
+    // }
 }
