@@ -15,11 +15,12 @@ pub async fn app() -> Result<()> {
         input,
         method,
         url,
-        parallel,
+        concurrent,
         timeout_seconds,
+        insecure,
     } = Args::parse()?;
 
-    let request_client = request_client(timeout_seconds)?;
+    let request_client = request_client(timeout_seconds, insecure)?;
 
     let (mut request_context_tx, mut request_context_rx) = mpsc::channel(256);
 
@@ -31,7 +32,7 @@ pub async fn app() -> Result<()> {
     // TODO these could be transformed into something closer to an actor and paired with the thing
     // doing the receiving where they have a mailbox that we can get access to (the tx) and the rx is internal
     let response_awaiter = tokio::spawn(async move {
-        let mut bu = request_rx.buffer_unordered(parallel);
+        let mut bu = request_rx.buffer_unordered(concurrent);
         while let Some(handle) = bu.next().await {
             if let Err(e) = handle {
                 eprintln!("error! {}", e);
@@ -104,9 +105,17 @@ fn create_reader(input: String) -> Result<Box<dyn BufRead>> {
     Ok(reader)
 }
 
-fn request_client(timeout_seconds: u64) -> Result<Client> {
+fn request_client(timeout_seconds: u64, insecure: bool) -> Result<Client> {
     let timeout = Duration::new(timeout_seconds, 0);
-    let client = Client::builder().timeout(timeout).gzip(true).build()?;
+    let mut client_builder = Client::builder().timeout(timeout).gzip(true);
+
+    if insecure {
+        client_builder = client_builder
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+    }
+
+    let client = client_builder.build()?;
     Ok(client)
 }
 

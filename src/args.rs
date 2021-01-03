@@ -8,8 +8,9 @@ pub struct Args {
     pub input: String,
     pub method: Method,
     pub url: String,
-    pub parallel: usize,
+    pub concurrent: usize,
     pub timeout_seconds: u64,
+    pub insecure: bool,
 }
 
 impl Args {
@@ -50,12 +51,18 @@ impl Args {
                     .about("A file to read input records from, defaults to reading from stdin"),
             )
             .arg(
-                Arg::new("parallel")
-                    .short('P')
-                    .long("parallel")
+                Arg::new("concurrent")
+                    .short('C')
+                    .long("concurrent")
                     .takes_value(true)
                     .default_value("1")
-                    .about("The maximum number of requests to send in parallel. At 1, requests will be sent serially, above 1 they will be sent in parallel and will resolve in the order they are completed"),
+                    .about("The maximum number of requests to send concurrently. At 1, requests will be fully resolved serially. At 2+ multiple requests will be sent concurrently and will resolve in the order they are completed."),
+            )
+            .arg(
+                Arg::new("insecure")
+                    .short('k')
+                    .long("insecure")
+                    .about("If specified, will accept invalid TLS certificates (includes ignoring expired certificates and hostnames that don't match the certificate).  Warning, this can introduce significant vulnerabilities."),
             )
             .arg(
                 Arg::new("timeout")
@@ -102,21 +109,21 @@ impl Args {
                     .about("The HTTP method for requests (GET/POST/PUT/...), can specify an arbitrary string"),
             )
             .get_matches_from(itr);
+
         let input = matches.value_of("input").unwrap_or_default().to_string();
-
-        let parallel: usize = matches.value_of_t("parallel")?;
-        let timeout_seconds: u64 = matches.value_of_t("timeout")?;
-
         let method: Method = matches.value_of_t("method").unwrap_or_else(|e| e.exit());
-
         let url = matches.value_of("url").unwrap_or_default().to_string();
+        let concurrent: usize = matches.value_of_t("concurrent")?;
+        let timeout_seconds: u64 = matches.value_of_t("timeout")?;
+        let insecure: bool = matches.is_present("insecure");
 
         Ok(Self {
             input,
             method,
             url,
-            parallel,
+            concurrent,
             timeout_seconds,
+            insecure
         })
     }
 }
@@ -152,10 +159,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_parallel() -> Result<()> {
-        assert_eq!(Args::parse_from(vec!["piper"])?.parallel, 1);
-        assert_eq!(Args::parse_from(vec!["piper", "-P", "20"])?.parallel, 20);
-        assert_eq!(Args::parse_from(vec!["piper", "-P", "a"]).is_err(), true);
+    fn parse_concurrent() -> Result<()> {
+        assert_eq!(Args::parse_from(vec!["piper"])?.concurrent, 1);
+        assert_eq!(Args::parse_from(vec!["piper", "-C", "20"])?.concurrent, 20);
+        assert_eq!(Args::parse_from(vec!["piper", "--concurrent", "40"])?.concurrent, 40);
+        assert_eq!(Args::parse_from(vec!["piper", "-C", "a"]).is_err(), true);
         Ok(())
     }
 
@@ -172,4 +180,13 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn parse_insecure() -> Result<()> {
+        assert_eq!(Args::parse_from(vec!["piper"])?.insecure, false);
+        assert_eq!(Args::parse_from(vec!["piper", "-k"])?.insecure, true);
+        assert_eq!(Args::parse_from(vec!["piper", "--insecure"])?.insecure, true);
+        Ok(())
+    }
+
 }

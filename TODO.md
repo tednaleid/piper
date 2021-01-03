@@ -1,3 +1,5 @@
+https://twitter.com/dfacastro/status/1271821446671720454
+
 # todo
 todo next:
 - delete the context module, or totally refactor it to use the parser
@@ -26,6 +28,7 @@ https://github.com/messense/reqwest/blob/af8513e2efd572efdd418548a43c8f059a820a3
     }
 
 - refactor the input reader so that it is a nom parser that can split records/fields on whatever the user has told us to split on
+  - this will use streaming in nom, rather than complete
 
 request_context has
 
