@@ -6,9 +6,6 @@ todo next:
 - refactor/delete the context module so that it uses what we've parsed with nom
 
 
-- do we have gzip headers on by default? maybe a flag to turn that off?
-
-
 runtime in tests after tokio 1.0 upgrade: 
 
 https://github.com/messense/reqwest/blob/af8513e2efd572efdd418548a43c8f059a820a30/src/async_impl/multipart.rs

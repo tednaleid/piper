@@ -87,6 +87,20 @@ pub struct RequestTemplate<'a> {
 //     }
 // }
 
+/// ensures we can parse the entire string, all of it should be parsed into the Vec of RequestFragment
+/// values.  If anything is left, that means it was unparsable and is an error.
+fn complete_parse_request_fragments(s: &'static str) -> Result<Vec<RequestFragment>> {
+    match parse_request_fragments(s) {
+        // we should be able to consume the entire string with nothing left
+        Ok(("", fragments)) => Ok(fragments),
+        // TODO better error messages here
+        Ok((remaining, _)) => Err(anyhow::Error::msg(
+            "Unable to process. Stopped at: ".to_owned() + remaining,
+        )),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn parse_request_fragments(s: &str) -> IResult<&str, Vec<RequestFragment>> {
     fold_many0(
         parse_request_fragment,
@@ -470,9 +484,25 @@ mod tests {
         );
     }
 
-    // TODO start here, we now have a method that'll parse out request fragments, we want it to
-    // NOT return OK if it can't eat everything in the template string, otherwise it should return
-    // the RequestTemplate
+    #[test]
+    fn test_request_template_from_str() {
+        assert_eq!(
+            complete_parse_request_fragments("just a literal").unwrap(),
+            vec![Literal("just a literal".as_bytes())]
+        );
+
+        assert_eq!(
+            complete_parse_request_fragments("a literal \\{").unwrap(),
+            vec![Literal("a literal ".as_bytes()), EscapedChar('{'),]
+        );
+
+        assert_eq!(
+            complete_parse_request_fragments("{2,4\\} after")
+                .unwrap_err()
+                .to_string(),
+            "Unable to process. Stopped at: {2,4\\} after"
+        );
+    }
 
     // #[test]
     // fn test_request_template_from_str() {

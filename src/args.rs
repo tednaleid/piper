@@ -123,7 +123,7 @@ impl Args {
             url,
             concurrent,
             timeout_seconds,
-            insecure
+            insecure,
         })
     }
 }
@@ -162,7 +162,10 @@ mod tests {
     fn parse_concurrent() -> Result<()> {
         assert_eq!(Args::parse_from(vec!["piper"])?.concurrent, 1);
         assert_eq!(Args::parse_from(vec!["piper", "-C", "20"])?.concurrent, 20);
-        assert_eq!(Args::parse_from(vec!["piper", "--concurrent", "40"])?.concurrent, 40);
+        assert_eq!(
+            Args::parse_from(vec!["piper", "--concurrent", "40"])?.concurrent,
+            40
+        );
         assert_eq!(Args::parse_from(vec!["piper", "-C", "a"]).is_err(), true);
         Ok(())
     }
@@ -185,8 +188,10 @@ mod tests {
     fn parse_insecure() -> Result<()> {
         assert_eq!(Args::parse_from(vec!["piper"])?.insecure, false);
         assert_eq!(Args::parse_from(vec!["piper", "-k"])?.insecure, true);
-        assert_eq!(Args::parse_from(vec!["piper", "--insecure"])?.insecure, true);
+        assert_eq!(
+            Args::parse_from(vec!["piper", "--insecure"])?.insecure,
+            true
+        );
         Ok(())
     }
-
 }
