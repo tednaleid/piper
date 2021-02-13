@@ -6,6 +6,14 @@ todo next:
 - refactor/delete the context module so that it uses what we've parsed with nom
 
 
+### other options for the buffer_unordered if that becomes problematic in tokio 1.0
+
+could possibly use a technique like this: https://github.com/benkay86/async-applied/blob/master/indicatif-reqwest-tokio/src/bin/indicatif-reqwest-tokio-multi.rs#L125
+another option FuturesUnordered https://users.rust-lang.org/t/batch-execution-of-futures-in-the-tokio-runtime-or-max-number-of-active-futures-at-a-time/47659/2
+
+
+
+
 runtime in tests after tokio 1.0 upgrade: 
 
 https://github.com/messense/reqwest/blob/af8513e2efd572efdd418548a43c8f059a820a30/src/async_impl/multipart.rs

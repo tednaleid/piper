@@ -1,15 +1,10 @@
-use crate::parser::RequestFragment::{EscapedChar, FieldRange, SingleField};
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_till1, take_while_m_n};
+use nom::bytes::complete::take_till1;
 use nom::character::complete::{anychar, char, digit1};
-use nom::combinator::{all_consuming, map, map_opt, map_res, value};
-use nom::error::ErrorKind::Digit;
-use nom::error::{FromExternalError, ParseError};
-use nom::multi::{fold_many0, fold_many0c};
+use nom::combinator::{all_consuming, map_res};
+use nom::multi::fold_many0;
 use nom::sequence::{delimited, preceded, tuple};
-use nom::{error::Error, AsBytes, IResult};
-use std::num::ParseIntError;
-use std::str::FromStr;
+use nom::IResult;
 
 use anyhow::Result;
 
@@ -189,7 +184,7 @@ fn parse_request_fragment(input: &str) -> nom::IResult<&str, RequestFragment> {
 /// possible values are everything that is on the request (so the input fields)
 /// as well as anything that we've exposed from the response
 /// as well as metadata about the request (such as when it was made and the duration of the request)
-fn parse_response_fragment(input: &str) -> nom::IResult<&str, ResponseFragment> {
+fn parse_response_fragment(_: &str) -> nom::IResult<&str, ResponseFragment> {
     todo!()
 }
 
@@ -218,9 +213,9 @@ fn parse_unbounded_field_range(input: &str) -> nom::IResult<&str, RequestFragmen
 mod tests {
     use super::*;
     use crate::parser::parse_literal;
-    use crate::parser::RequestFragment::{FieldRange, Literal, UnboundedFieldRange};
-    use nom::bytes::complete::take_while;
-    use nom::error::ErrorKind::{Char, Eof, IsNot, TakeTill1};
+    use crate::parser::RequestFragment::{FieldRange, Literal, UnboundedFieldRange, EscapedChar, SingleField};
+    use nom::error::ErrorKind::{Char, Eof, IsNot, TakeTill1, Digit};
+    use nom::error::Error;
 
     #[test]
     fn test_parse_literal() {
@@ -493,7 +488,7 @@ mod tests {
 
         assert_eq!(
             complete_parse_request_fragments("a literal \\{").unwrap(),
-            vec![Literal("a literal ".as_bytes()), EscapedChar('{'),]
+            vec![Literal("a literal ".as_bytes()), EscapedChar('{'), ]
         );
 
         assert_eq!(

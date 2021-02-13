@@ -1,14 +1,14 @@
-use anyhow::{Error, Result};
-use futures::{Future, StreamExt};
+use anyhow::Result;
 use piper::args::Args;
 use piper::context::{FieldValues, OutputTemplate, SPACE_BYTE};
 use reqwest::{Client, Method, StatusCode, Url};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use tokio::runtime;
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::task::JoinHandle;
-use tokio::time::{delay_for, Duration};
+use tokio::sync::mpsc::{self, Sender};
+use tokio::time::Duration;
+use futures::StreamExt;
+use tokio_stream::wrappers::ReceiverStream;
 
 pub async fn app() -> Result<()> {
     let Args {
@@ -22,17 +22,15 @@ pub async fn app() -> Result<()> {
 
     let request_client = request_client(timeout_seconds, insecure)?;
 
-    let (mut request_context_tx, mut request_context_rx) = mpsc::channel(256);
+    let (request_context_tx, mut request_context_rx) = mpsc::channel(256);
 
-    let (mut request_tx, request_rx) = mpsc::channel(256);
+    let (request_tx, request_rx) = mpsc::channel(256);
 
-    let (mut response_tx, mut response_rx) = mpsc::channel(256);
+    let (response_tx, mut response_rx) = mpsc::channel(256);
 
-    // TODO punting on refactoring this till reqwest is updated to support tokio 1.0: https://github.com/seanmonstar/reqwest/issues/1123
-    // TODO these could be transformed into something closer to an actor and paired with the thing
-    // doing the receiving where they have a mailbox that we can get access to (the tx) and the rx is internal
     let response_awaiter = tokio::spawn(async move {
-        let mut bu = request_rx.buffer_unordered(concurrent);
+        // need to convert to a ReceiverStream as the tokio_stream stuff was pulled out of core tokio
+        let mut bu = ReceiverStream::new(request_rx).buffer_unordered(concurrent);
         while let Some(handle) = bu.next().await {
             if let Err(e) = handle {
                 eprintln!("error! {}", e);
@@ -121,7 +119,7 @@ fn request_client(timeout_seconds: u64, insecure: bool) -> Result<Client> {
 
 fn main() -> Result<()> {
     let future = app();
-    let mut rt = runtime::Builder::new_multi_thread()
+    let rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
 
@@ -131,7 +129,7 @@ fn main() -> Result<()> {
 async fn request(
     request_context: RequestContext,
     client: Client,
-    mut response_tx: Sender<ResponseContext>,
+    response_tx: Sender<ResponseContext>,
 ) -> Result<()> {
     let start = std::time::Instant::now();
     let url = Url::parse(&request_context.url).unwrap();

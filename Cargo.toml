@@ -19,13 +19,15 @@ anyhow = "1.0"
 
 futures = "0.3.8"
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1.3" # required for now as it isn't in tokio https://docs.rs/tokio/1.2.0/tokio/stream/index.html
 reqwest = { version = "0.11", features = ["json", "gzip", "native-tls"] }
 
 lazy_static = "1.4.0"
 smallvec = "1.5.1"
 regex = "1.4.2"
 
-nom = "6.0.1"
+nom = "6.1.0"
+funty = "=1.1.0"  # hard-coding because of https://github.com/bitvecto-rs/bitvec/issues/105
 
 [dev-dependencies]
 assert_cmd = "1.0.2"
