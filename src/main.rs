@@ -121,8 +121,7 @@ fn request_client(timeout_seconds: u64, insecure: bool) -> Result<Client> {
 
 fn main() -> Result<()> {
     let future = app();
-    let mut rt = runtime::Builder::new()
-        .threaded_scheduler()
+    let mut rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
 

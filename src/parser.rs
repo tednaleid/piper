@@ -504,6 +504,11 @@ mod tests {
         );
     }
 
+
+    // TODO next turn the above method into something that creates a RequestTemplate
+    // then make methods that allow the request template able to render itself given input
+
+
     // #[test]
     // fn test_request_template_from_str() {
     //     assert_eq!(
